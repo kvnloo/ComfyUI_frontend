@@ -39,6 +39,11 @@ interface WorkItem<TFetched = unknown> {
   fetched?: TFetched
 }
 
+interface ActiveFetch {
+  generation: number
+  controller: AbortController
+}
+
 function positiveConcurrency(value: number, field: string) {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${field} must be a positive integer`)
@@ -50,7 +55,7 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
   private readonly decodeConcurrency: number
   private readonly fetchQueue: WorkItem[] = []
   private readonly decodeQueue: WorkItem<TFetched>[] = []
-  private readonly fetchControllers = new Map<string, AbortController>()
+  private readonly fetchControllers = new Map<string, ActiveFetch>()
   private wantedKeys = new Set<string>()
   private wantedGeneration = 0
   private destroyed = false
@@ -97,9 +102,9 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
     this.wantedGeneration = generation
     this.wantedKeys = new Set(unique.keys())
 
-    for (const [key, controller] of this.fetchControllers) {
-      if (!this.wantedKeys.has(key)) {
-        controller.abort()
+    for (const [key, active] of this.fetchControllers) {
+      if (active.generation !== generation || !this.wantedKeys.has(key)) {
+        active.controller.abort()
         this.fetchControllers.delete(key)
         this.counters.abortedFetches++
       }
@@ -127,9 +132,15 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
     }
 
     const alreadyScheduled = new Set([
-      ...this.fetchQueue.map((item) => item.tile.key),
-      ...this.decodeQueue.map((item) => item.tile.key),
-      ...this.fetchControllers.keys()
+      ...this.fetchQueue
+        .filter((item) => item.generation === generation)
+        .map((item) => item.tile.key),
+      ...this.decodeQueue
+        .filter((item) => item.generation === generation)
+        .map((item) => item.tile.key),
+      ...[...this.fetchControllers.entries()]
+        .filter(([, active]) => active.generation === generation)
+        .map(([key]) => key)
     ])
 
     for (const tile of unique.values()) {
@@ -148,8 +159,8 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
     this.wantedKeys.clear()
     this.fetchQueue.splice(0)
     this.decodeQueue.splice(0)
-    for (const controller of this.fetchControllers.values()) {
-      controller.abort()
+    for (const active of this.fetchControllers.values()) {
+      active.controller.abort()
       this.counters.abortedFetches++
     }
     this.fetchControllers.clear()
@@ -189,7 +200,10 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
       if (!this.isWanted(item)) continue
 
       const controller = new AbortController()
-      this.fetchControllers.set(item.tile.key, controller)
+      this.fetchControllers.set(item.tile.key, {
+        generation: item.generation,
+        controller
+      })
       this.fetchInFlight++
 
       void this.options
@@ -210,7 +224,10 @@ export class MultiresolutionTilePipeline<TFetched, TDecoded> {
           }
         })
         .finally(() => {
-          this.fetchControllers.delete(item.tile.key)
+          const active = this.fetchControllers.get(item.tile.key)
+          if (active?.controller === controller) {
+            this.fetchControllers.delete(item.tile.key)
+          }
           this.fetchInFlight--
           this.pumpFetch()
         })
