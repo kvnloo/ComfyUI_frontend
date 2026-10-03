@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "width": 8192,
+  "height": 4096,
+  "previewUrl": "/fixtures/multiresolution/preview.jpg",
+  "levels": [
+    {
+      "level": 0,
+      "width": 1024,
+      "height": 512,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "urlTemplate": "/fixtures/multiresolution/0/{x}_{y}.jpg"
+    },
+    {
+      "level": 1,
+      "width": 2048,
+      "height": 1024,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "urlTemplate": "/fixtures/multiresolution/1/{x}_{y}.jpg"
+    },
+    {
+      "level": 2,
+      "width": 4096,
+      "height": 2048,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "urlTemplate": "/fixtures/multiresolution/2/{x}_{y}.jpg"
+    },
+    {
+      "level": 3,
+      "width": 8192,
+      "height": 4096,
+      "tileWidth": 256,
+      "tileHeight": 256,
+      "urlTemplate": "/fixtures/multiresolution/3/{x}_{y}.jpg"
+    }
+  ]
+}
