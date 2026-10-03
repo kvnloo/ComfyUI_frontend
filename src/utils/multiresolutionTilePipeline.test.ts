@@ -31,8 +31,14 @@ describe('MultiresolutionTilePipeline', () => {
     const scheduler = new MultiresolutionMediaScheduler({
       maxDecodedBytes: 1024
     })
-    const fetches = [deferred<string>(), deferred<string>(), deferred<string>()]
-    const decodes = [deferred<string>(), deferred<string>(), deferred<string>()]
+    const fetchA = deferred<string>()
+    const fetchB = deferred<string>()
+    const fetchC = deferred<string>()
+    const decodeA = deferred<string>()
+    const decodeB = deferred<string>()
+    const decodeC = deferred<string>()
+    const fetches = [fetchA, fetchB, fetchC]
+    const decodes = [decodeA, decodeB, decodeC]
     const fetchTile = vi.fn((_tile: TileDemand) => fetches.shift()!.promise)
     const decodeTile = vi.fn((_value: string) => decodes.shift()!.promise)
     const publishTile = vi.fn()
@@ -49,19 +55,19 @@ describe('MultiresolutionTilePipeline', () => {
     pipeline.setDemand(generation, [tile('0'), tile('1'), tile('2')])
     expect(fetchTile).toHaveBeenCalledTimes(2)
 
-    fetches[0].resolve('a')
+    fetchA.resolve('a')
     await Promise.resolve()
     await Promise.resolve()
 
     expect(decodeTile).toHaveBeenCalledTimes(1)
     expect(fetchTile).toHaveBeenCalledTimes(3)
 
-    fetches[1].resolve('b')
+    fetchB.resolve('b')
     await Promise.resolve()
     await Promise.resolve()
     expect(decodeTile).toHaveBeenCalledTimes(1)
 
-    decodes[0].resolve('decoded-a')
+    decodeA.resolve('decoded-a')
     await Promise.resolve()
     await Promise.resolve()
     expect(decodeTile).toHaveBeenCalledTimes(2)
@@ -123,6 +129,51 @@ describe('MultiresolutionTilePipeline', () => {
     await Promise.resolve()
     await Promise.resolve()
     expect(pipeline.stats().staleBeforeDecode).toBe(1)
+  })
+
+  it('refetches the same tile key when a newer generation supersedes it', async () => {
+    const scheduler = new MultiresolutionMediaScheduler({
+      maxDecodedBytes: 1024
+    })
+    const oldFetch = deferred<string>()
+    const newFetch = deferred<string>()
+    const signals: AbortSignal[] = []
+    const fetchTile = vi
+      .fn()
+      .mockImplementationOnce(async (_tile: TileDemand, signal: AbortSignal) => {
+        signals.push(signal)
+        return oldFetch.promise
+      })
+      .mockImplementationOnce(async (_tile: TileDemand, signal: AbortSignal) => {
+        signals.push(signal)
+        return newFetch.promise
+      })
+    const publishTile = vi.fn()
+    const pipeline = new MultiresolutionTilePipeline({
+      scheduler,
+      fetchConcurrency: 2,
+      fetchTile,
+      decodeTile: async (value: string) => value,
+      publishTile
+    })
+
+    const oldGeneration = scheduler.generation
+    pipeline.setDemand(oldGeneration, [tile('0')])
+
+    const newGeneration = scheduler.invalidateViewport()
+    pipeline.setDemand(newGeneration, [tile('0')])
+
+    expect(fetchTile).toHaveBeenCalledTimes(2)
+    expect(signals[0].aborted).toBe(true)
+    expect(signals[1].aborted).toBe(false)
+
+    oldFetch.resolve('old')
+    newFetch.resolve('new')
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(pipeline.stats().abortedFetches).toBe(1)
   })
 
   it('never decodes a fetch completion from an obsolete viewport generation', async () => {
