@@ -111,16 +111,13 @@ export function chooseMultiresolutionLevel(
     throw new Error('sourcePixelsPerCssPixel must be a finite positive number')
   }
 
-  let selected = source.levels.at(-1)!
   for (const level of source.levels) {
     const downsample = source.width / level.width
     if (downsample <= sourcePixelsPerCssPixel) {
-      selected = level
-      continue
+      return level
     }
-    break
   }
-  return selected
+  return source.levels.at(-1)!
 }
 
 export function visibleTileDemand(
@@ -137,9 +134,10 @@ export function visibleTileDemand(
   const knownLevel = source.levels.find(
     (candidate) => candidate.level === level.level
   )
-  if (!knownLevel || knownLevel !== level) {
+  if (!knownLevel) {
     throw new Error('level must belong to source.levels')
   }
+  level = knownLevel
   if (sourceViewport.width === 0 || sourceViewport.height === 0) {
     return []
   }
